@@ -3,13 +3,13 @@
 This repository is Tofu's copy of **airisorg/tofu-chat** (licence: MIT), listed in Tofu's app gallery as **Team chat** (团队聊天): Tofu Chat, a team messenger for groups of up to 30 people, with direct messages, group chats, spaces, threads, reactions, search, stars, pictures, files and voice messages.
 
 - `main` mirrors the upstream repository and is never committed to by Tofu.
-- `tofu` carries Tofu's own changes; tags named `pin/<date>` mark the versions the gallery points to. The current pin is `pin/2026-10-26`.
+- `tofu` carries Tofu's own changes; tags named `pin/<date>` mark the versions the gallery points to. The current pin is `pin/2026-10-26.1`.
 - A visitor who chooses this app gets a private snapshot of the pinned version in their own Tofu account. Their copy does not follow upstream updates.
 - Upstream: https://github.com/airisorg/tofu-chat at `802034c50cad691428d334d182a124ebffee2ce1` (2026-10-25, "Take the sign-in address and database CA from Tofu, not the code (#19)"). The `tofu` branch starts from that commit.
 
 ## What the app is
 
-A Next.js 16 app (React 19, TypeScript). Its server keeps every conversation in PostgreSQL through the `postgres` driver (`prepare: false`), in a private schema named `relay`. Identity comes from the copy's own Supabase auth service: every API request sends the browser's session as a bearer token, the server verifies it with supabase-js `getUser` and refuses an account whose email is not confirmed. Google sign-in starts at Tofu's sign-in broker. The browser asks for new messages every 3 seconds while the page is visible, and a private realtime event on `relay.events` makes it ask sooner. The landing page's "Explore demo" uses synthetic data in the browser; production builds turn it off unless `NEXT_PUBLIC_ENABLE_DEMO` is set.
+A Next.js 16 app (React 19, TypeScript). Its server keeps every conversation in PostgreSQL through the `postgres` driver (`prepare: false`), in a private schema named `relay`. Identity comes from the copy's own Supabase auth service: every chat, upload and attachment request sends the browser's session as a bearer token, the server verifies it with supabase-js `getUser` and refuses an account whose email is not confirmed. Google sign-in starts at Tofu's sign-in broker. The browser asks for new messages every 3 seconds while the page is visible, and a private realtime event on `relay.events` makes it ask sooner. The landing page's "Explore demo" uses synthetic data in the browser; production builds turn it off unless `NEXT_PUBLIC_ENABLE_DEMO` is set to `true`.
 
 ## How Tofu runs it
 
@@ -52,7 +52,7 @@ This works through Supavisor's transaction mode because it uses nothing outside 
 ## Sign-in
 
 - Google through Tofu's broker (`TOFU_SIGN_IN_URL`); the session is the copy's own auth service's. As upstream has it, the sign-in callback must match a sign-in request that the same tab saved within the last ten minutes.
-- Anyone with a Google account can sign in to a new copy until its owner chooses "Only people you add" under "Who can sign up" on the app's Sign-in page in Tofu's dashboard. The app has no sign-up setting of its own and no administrator: every account is an ordinary member.
+- Anyone with a Google account can sign in to a new copy until its owner chooses "Only people you add" under "Who can sign up" on the app's Sign-in page in Tofu's dashboard. Once that is chosen, someone who has never signed in gets in only after the owner adds their Google address on that same page: adding them to a conversation in the app is not enough. The app has no sign-up setting of its own and no administrator: every account is an ordinary member.
 - A stranger who signs in gets an empty workspace. They see only conversations they belong to, or are invited to by their verified email; the server builds each person's list of people only from those conversations, so there is no directory of the copy's people. They cannot read anyone else's messages, files or conversations. They can start conversations of their own and send files, which use the copy's database, within upstream's limits (30 people per conversation; per account and minute, 600 reads and 120 writes, upload chunks or downloads).
 
 ## The database's Data API
@@ -64,7 +64,7 @@ Supabase's Data API (PostgREST) serves only the schemas set as exposed, by defau
 - No email is sent. An invitation is a link that people share themselves; the invited person joins by signing in with the invited email (upstream sends no email either).
 - Pictures, files and voice messages are stored in the database (up to 5 MiB each, three per message; voice up to two minutes) and count toward the database's size. Uploads go in 1 MiB chunks, in requests below the host's request limit.
 - No video or voice calls, no background push notifications and no automatic sending while offline, as upstream says.
-- The demo stays off in production unless `NEXT_PUBLIC_ENABLE_DEMO` is set.
+- The demo stays off in production unless `NEXT_PUBLIC_ENABLE_DEMO` is set to `true`.
 
 ## What Tofu changes
 
@@ -89,6 +89,10 @@ Chat behaviour, the interface, the demo, the security model and the dependencies
 - Every new file says at its top that it is Tofu's addition. The upstream files Tofu changed are `package.json` (the build script) and `README.md` (one sentence).
 
 ## Verification
+
+### `pin/2026-10-26.1`
+
+This file's wording only (the demo setting must be `true`; which requests carry the session; what "Only people you add" asks of the owner). The code is `pin/2026-10-26`'s, verified as below.
 
 ### `pin/2026-10-26`
 
