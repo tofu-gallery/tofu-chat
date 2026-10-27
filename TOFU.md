@@ -3,9 +3,9 @@
 This repository is Tofu's copy of **airisorg/tofu-chat** (licence: MIT), listed in Tofu's app gallery as **Team chat** (团队聊天): Tofu Chat, a team messenger for groups of up to 30 people, with direct messages, group chats, spaces, threads, reactions, search, stars, pictures, files and voice messages.
 
 - `main` mirrors the upstream repository and is never committed to by Tofu.
-- `tofu` carries Tofu's own changes; tags named `pin/<date>` mark the versions the gallery points to. The current pin is `pin/2026-10-26.1`.
+- `tofu` carries Tofu's own changes; tags named `pin/<date>` mark the versions the gallery points to. The current pin is `pin/2026-10-27`.
 - A visitor who chooses this app gets a private snapshot of the pinned version in their own Tofu account. Their copy does not follow upstream updates.
-- Upstream: https://github.com/airisorg/tofu-chat at `802034c50cad691428d334d182a124ebffee2ce1` (2026-10-25, "Take the sign-in address and database CA from Tofu, not the code (#19)"). The `tofu` branch starts from that commit.
+- Upstream: https://github.com/airisorg/tofu-chat at `802034c50cad691428d334d182a124ebffee2ce1` (2026-10-25, "Take the sign-in address and database CA from Tofu, not the code (#19)"). The `tofu` branch starts from that commit. It also carries one commit from upstream's open pull request airisorg/tofu-chat#21; see [What Tofu changes](#what-tofu-changes).
 
 ## What the app is
 
@@ -71,8 +71,9 @@ Supabase's Data API (PostgREST) serves only the schemas set as exposed, by defau
 Only these, each in its own commit on `tofu`:
 
 1. `scripts/tofu-schema.ts`, its place in `package.json`'s build script between `verify-database` and `next build`, and two tests (`tests/tofu-schema.test.ts`, `tests/tofu-schema-pglite.test.ts`). Why: without it a new copy's database has no tables until somebody signs in, because the server applies its schema only at the first authenticated request. With it the database has its 12 closed tables right after the first deployment, so the owner's Database page shows them, the first sign-in does not wait for the schema, and Tofu's live check can verify the tables and their access rules on a real Tofu database, which it cannot otherwise do (no agent can complete a Google sign-in). The step opens one connection with exactly `verify-database`'s TLS rules (production verification, `SUPABASE_CA_CERT` or `DATABASE_CA_CERT`; `prepare: false`, one connection; connect within 15 s, schema within 60 s, close within 3 s), prints one line naming the version and never a host, user, database name or credential, skips a local build without `DATABASE_URL`, refuses a hosted one, and stops the build with `Chat schema setup failed. Deployment stopped; check the database connection settings.` instead of the driver's text. The runtime path is exactly upstream's.
-2. `README.md`: the sentence saying this server app with a database needs Tofu's Pro hosting was out of date (Tofu's Free plan can host one server app with its database). It now says only that it is a server app with a database and keeps the link to the current plans.
-3. This file.
+2. How a failed schema step ends: `scripts/tofu-schema.ts` writes its one line and exits with code 1 at once (`process.stderr.write(..., () => process.exit(1))`), instead of setting `process.exitCode` and waiting for the process to end by itself. Why: postgres.js ends a timed-out connection by half-closing its socket, so after printing the failure the process could stay alive until the database side closed the socket (on a network that stops answering, until TCP gives up; on a connection whose backend waits on the advisory lock, until it gets the lock), and the deployment waited instead of failing. This is upstream's commit `8c967a8f889d500066aa9a0f6ac5f6d73364a4e3` from airisorg/tofu-chat#21 (open there), carried unchanged with its two test changes: a test that the connect limit is lifted once the connection answers, and explicit limits in the PGlite test. `scripts/verify-database.ts` (upstream's) still ends a failure the old way; that pull request leaves it as it is, and so does Tofu.
+3. `README.md`: the sentence saying this server app with a database needs Tofu's Pro hosting was out of date (Tofu's Free plan can host one server app with its database). It now says only that it is a server app with a database and keeps the link to the current plans.
+4. This file.
 
 Chat behaviour, the interface, the demo, the security model and the dependencies (`package-lock.json`) are upstream's.
 
@@ -89,6 +90,16 @@ Chat behaviour, the interface, the demo, the security model and the dependencies
 - Every new file says at its top that it is Tofu's addition. The upstream files Tofu changed are `package.json` (the build script) and `README.md` (one sentence).
 
 ## Verification
+
+### `pin/2026-10-27`
+
+2026-10-27, on macOS arm64 against 127.0.0.1 only. No Docker, nothing deployed. The code is `pin/2026-10-26.1`'s plus commit `cd1e615` (change 2 above), whose diff has the same `git patch-id` as upstream's `8c967a8`.
+
+- In a clone, after `npm ci`: `node --import tsx --test tests/tofu-schema.test.ts tests/tofu-schema-pglite.test.ts` (how `npm run test:unit:fast` and `npm run test:sql` run these two files): 9 tests passed (1 new). The inventory tests `tests/test-catalog.test.ts`, `tests/coverage-instrumentation.test.ts` and `tests/backend-coverage-integrity.test.ts`: 16 passed. `tsx scripts/test-catalog.ts` (`npm run test:catalog`) lists 22 unit, 14 sql and 3 native test files, as before. `npm run typecheck` passed; `npx eslint --max-warnings=0` on the three changed code files, and `npx prettier --check` on them and this file, passed.
+- On a scratch PostgreSQL 14.24 cluster on 127.0.0.1 with TLS (a throwaway CA and a server certificate for `127.0.0.1` and `localhost`), the app connecting as an ordinary login role that owns its database, another session held `pg_advisory_xact_lock(724931108)` for 100 s while the build's step from `pin/2026-10-26.1` and from this version ran side by side (`tsx scripts/tofu-schema.ts`, as the build script runs it, with `DATABASE_URL` and `SUPABASE_CA_CERT`), on a database without `relay`. Times count from when the lock was taken; both steps started at 1 s. Both connections waited on the lock (two waiters in `pg_locks` at 30 s and at 70 s). Both steps printed `Chat schema setup failed. Deployment stopped; check the database connection settings.` at 63 s (the 60 s schema limit, then the 2 s close). This version then exited with code 1 within 0.01 s; the old one stayed alive until the lock was released and exited with code 1 at 100 s. Neither created `relay`. When the lock was released, one waiting connection ended with `connection to client lost` (its client had already exited) and the other ended normally; no `ERROR` line was logged. An earlier run of the same case with `node --import tsx scripts/tofu-schema.ts` gave the same result: both lines at 63 s, exits at 63 s and 100 s.
+- Then, with no lock held, this version printed `Chat schema ready: version 6.` and exited 0, twice (0.30 s and 0.20 s); with no CA (Node's default store) it printed the sanitized line and exited 1 (0.19 s). Read back from the catalogs: `relay` holds 12 tables, all 12 with row-level security, and 21 indexes; version 6 is recorded once; `relay_events_own_select` exists; `relay.events` is in `supabase_realtime`; `anon` has no `USAGE` on `relay`.
+- Not run here: the rest of the unit and sql layers, the native and browser suites, coverage and `next build` (this version changes only the schema step and its tests), Tofu's transaction pooler, a network that stops answering, and anything on Tofu.
+- The scratch database cluster was stopped and deleted afterwards, with the typecheck's output.
 
 ### `pin/2026-10-26.1`
 
